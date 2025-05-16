@@ -1,4 +1,4 @@
-# LRU Cache Rust Implementation
+# LRU Cache
 [![Version](https://img.shields.io/crates/v/lru-cache-rs)](https://crates.io/crates/lru-cache-rs)
 [![License](https://img.shields.io/crates/l/lru-cache-rs)](License)
 
