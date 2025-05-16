@@ -1,0 +1,8 @@
+[package]
+name = "lru-cache-rs"
+version = "0.1.0"
+edition = "2024"
+description = "lru cache"
+license = "MIT"
+repository = "https://github.com/ibatanov/lru-cache-rs"
+authors = ["Igor Batanov <irbatanov@ya.ru>"]
