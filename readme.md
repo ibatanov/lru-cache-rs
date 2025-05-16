@@ -66,8 +66,6 @@ cache.clear_expired();
 ## Пример
 
 ```rust
-use std::thread;
-
 let cache = SafeLRUCache::new(2, None);
 
 cache.put("a", 1, None, 1);
