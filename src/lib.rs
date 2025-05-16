@@ -286,5 +286,6 @@ mod tests {
         for i in 0..1000 {
             cache.put(i, Box::new([0u8; 1024]), None);
         }
+        assert_eq!(cache.len(), 2);
     }
 }
