@@ -1,4 +1,7 @@
 # LRU Cache Rust Implementation
+[![Version](https://img.shields.io/crates/v/lru-cache-rs)](https://crates.io/crates/lru-cache-rs)
+[![License](https://img.shields.io/crates/l/lru-cache-rs)](License)
+
 
 Потокобезопасный кеш с политикой вытеснения Least Recently Used (LRU), поддержкой TTL и ограничениями по размеру.
 
@@ -8,7 +11,7 @@
 
 ```toml
 [dependencies]
-lru-cache-rs = { path = "./lru-cache-rs" }
+lru-cache-rs = "0.1.0"
 ```
 
 ## Использование
