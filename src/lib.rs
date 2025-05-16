@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
 pub struct SafeLRUCache<K, V> {
-    inner: Arc<Mutex<InnerLRUCache<K, V>>>,
+    inner: Arc<RwLock<InnerLRUCache<K, V>>>,
 }
 
 struct InnerLRUCache<K, V> {
@@ -29,7 +29,7 @@ where
 {
     pub fn new(capacity: usize, max_size: Option<usize>) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(InnerLRUCache {
+            inner: Arc::new(RwLock::new(InnerLRUCache {
                 capacity,
                 max_size,
                 current_size: 0,
@@ -40,7 +40,7 @@ where
     }
 
     pub fn put(&self, key: K, value: V, ttl: Option<Duration>, size: usize) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.write().unwrap();
         let expires_at = ttl.map(|d| Instant::now() + d);
 
         let item = CacheItem {
@@ -69,26 +69,32 @@ where
     }
 
     pub fn get(&self, key: &K) -> Option<V> {
-        let mut inner = self.inner.lock().unwrap();
-        inner.clear_expired();
+        // First check existence and check expired with write lock
+        let exists = {
+            let inner = self.inner.read().unwrap();
+            inner.map.contains_key(key)
+        };
 
-        // First check if key exists to avoid cloning unnecessarily
-        if !inner.map.contains_key(key) {
+        if !exists {
             return None;
         }
 
-        // Now we know key exists, we can modify order safely
+        // Upgrade to write lock to modify order
+        let mut inner = self.inner.write().unwrap();
+        inner.clear_expired();
+
         if let Some(pos) = inner.order.iter().position(|k| k.as_ref() == key) {
             let key_clone = Arc::new(key.clone());
             inner.order.remove(pos);
             inner.order.push(key_clone);
+            inner.map.get(key).map(|item| item.value.clone())
+        } else {
+            None
         }
-
-        inner.map.get(key).map(|item| item.value.clone())
     }
 
     pub fn clear_expired(&self) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.write().unwrap();
         inner.clear_expired();
     }
 }
@@ -177,5 +183,23 @@ mod tests {
         cache.put("key1", "value1", None, 1);
         cache.put("key1", "value1_new", None, 1);
         assert_eq!(cache.get(&"key1"), Some("value1_new"));
+    }
+
+    #[test]
+    fn test_concurrent_access() {
+        let cache = Arc::new(SafeLRUCache::new(100, None));
+        let mut handles = vec![];
+
+        for i in 0..10 {
+            let cache = Arc::clone(&cache);
+            handles.push(thread::spawn(move || {
+                cache.put(i, i*2, None, 1);
+                assert_eq!(cache.get(&i), Some(i*2));
+            }));
+        }
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
     }
 }
