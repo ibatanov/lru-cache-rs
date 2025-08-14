@@ -1,7 +1,7 @@
 use std::collections::HashMap;
+use std::hash::Hash;
 use std::ptr::NonNull;
 use std::time::{Duration, Instant};
-use std::hash::Hash;
 
 struct Node<K, V> {
     key: K,
@@ -16,21 +16,25 @@ pub struct LruCache<K, V> {
     head: Option<NonNull<Node<K, V>>>,
     tail: Option<NonNull<Node<K, V>>>,
     capacity: usize,
+    cleanble: Option<bool>,
 }
 
 impl<K: Eq + Hash + Clone, V> LruCache<K, V> {
-    pub fn new(capacity: usize) -> Self {
+    pub fn new(capacity: usize, cleanble: Option<bool>) -> Self {
         assert!(capacity > 0);
         LruCache {
             map: HashMap::with_capacity(capacity),
             head: None,
             tail: None,
             capacity,
+            cleanble,
         }
     }
 
     pub fn put(&mut self, key: K, value: V, ttl: Option<Duration>) {
-        self.evict_expired();
+        if self.cleanble.unwrap_or(false) {
+            self.evict_expired();
+        }
         let expires_at = ttl.map(|d| Instant::now() + d);
 
         if let Some(node_ptr) = self.map.get(&key).cloned() {
@@ -69,9 +73,12 @@ impl<K: Eq + Hash + Clone, V> LruCache<K, V> {
     }
 
     pub fn get(&mut self, key: &K) -> Option<&V> {
-        self.evict_expired();
+        if self.cleanble.unwrap_or(false) {
+            self.evict_expired();
+        }
 
-        let node_ptr = self.map.get(key).cloned()?;
+        // разименовать выгоднее, в противном случае необходим cloned notnull
+        let node_ptr = *self.map.get(key)?;
 
         unsafe {
             let node = node_ptr.as_ptr().as_ref().unwrap();
@@ -91,9 +98,11 @@ impl<K: Eq + Hash + Clone, V> LruCache<K, V> {
     }
 
     pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
-        self.evict_expired();
+        if self.cleanble.unwrap_or(false) {
+            self.evict_expired();
+        }
 
-        let node_ptr = self.map.get(key).cloned()?;
+        let node_ptr = *self.map.get(key)?;
 
         unsafe {
             let node = node_ptr.as_ptr().as_mut().unwrap();
@@ -114,20 +123,18 @@ impl<K: Eq + Hash + Clone, V> LruCache<K, V> {
 
     fn remove_node(&mut self, node_ptr: NonNull<Node<K, V>>) {
         unsafe {
-            match (*node_ptr.as_ptr()).prev {
-                Some(prev) => {
-                    let prev_mut = prev.as_ptr() as *mut Node<K, V>;
-                    (*prev_mut).next = (*node_ptr.as_ptr()).next;
-                },
-                None => self.head = (*node_ptr.as_ptr()).next,
+            let node = node_ptr.as_ptr();
+
+            if let Some(prev) = (*node).prev {
+                (*prev.as_ptr()).next = (*node).next;
+            } else {
+                self.head = (*node).next;
             }
 
-            match (*node_ptr.as_ptr()).next {
-                Some(next) => {
-                    let next_mut = next.as_ptr() as *mut Node<K, V>;
-                    (*next_mut).prev = (*node_ptr.as_ptr()).prev;
-                },
-                None => self.tail = (*node_ptr.as_ptr()).prev,
+            if let Some(next) = (*node).next {
+                (*next.as_ptr()).prev = (*node).prev;
+            } else {
+                self.tail = (*node).prev;
             }
         }
     }
@@ -161,7 +168,7 @@ impl<K: Eq + Hash + Clone, V> LruCache<K, V> {
                         let prev_mut = prev.as_ptr() as *mut Node<K, V>;
                         (*prev_mut).next = None;
                         self.tail = Some(prev);
-                    },
+                    }
                     None => {
                         self.head = None;
                         self.tail = None;
@@ -173,22 +180,20 @@ impl<K: Eq + Hash + Clone, V> LruCache<K, V> {
         }
     }
 
-    fn evict_expired(&mut self) {
+    pub fn evict_expired(&mut self) {
         let now = Instant::now();
-        let mut expired_keys = Vec::new();
+        let mut current = self.head;
 
-        for (key, &node_ptr) in &self.map {
+        while let Some(node_ptr) = current {
             unsafe {
-                if (*node_ptr.as_ptr()).expired_at(now) {
-                    expired_keys.push(key.clone());
-                }
-            }
-        }
+                let node = node_ptr.as_ptr();
+                current = (*node).next;
 
-        for key in expired_keys {
-            if let Some(node_ptr) = self.map.remove(&key) {
-                self.remove_node(node_ptr);
-                unsafe { let _ = Box::from_raw(node_ptr.as_ptr()); }
+                if (*node).expired_at(now) {
+                    self.map.remove(&(*node).key);
+                    self.remove_node(node_ptr);
+                    let _ = Box::from_raw(node);
+                }
             }
         }
     }
@@ -235,7 +240,7 @@ mod tests {
 
     #[test]
     fn test_basic_operations() {
-        let mut cache = LruCache::new(2);
+        let mut cache = LruCache::new(2, None);
         cache.put("a", 1, None);
         cache.put("b", 2, None);
 
@@ -250,15 +255,32 @@ mod tests {
     }
 
     #[test]
-    fn test_ttl_expiration() {
-        let mut cache = LruCache::new(2);
-        cache.put("a", 1, Some(Duration::from_millis(100)));
+    fn test_ttl_expiration_auto() {
+        let mut cache = LruCache::new(2, Some(true));
+        cache.put("a", 1, Some(Duration::from_millis(150)));
         cache.put("b", 2, None);
 
         assert_eq!(cache.get(&"a"), Some(&1));
         assert_eq!(cache.get(&"b"), Some(&2));
 
-        thread::sleep(Duration::from_millis(150));
+        thread::sleep(Duration::from_millis(200));
+
+        assert_eq!(cache.get(&"a"), None);
+        assert_eq!(cache.get(&"b"), Some(&2));
+    }
+
+    #[test]
+    fn test_ttl_expiration_() {
+        let mut cache = LruCache::new(2, None);
+        cache.put("a", 1, Some(Duration::from_millis(150)));
+        cache.put("b", 2, None);
+
+        assert_eq!(cache.get(&"a"), Some(&1));
+        assert_eq!(cache.get(&"b"), Some(&2));
+
+        thread::sleep(Duration::from_millis(200));
+
+        cache.evict_expired();
 
         assert_eq!(cache.get(&"a"), None);
         assert_eq!(cache.get(&"b"), Some(&2));
@@ -266,7 +288,7 @@ mod tests {
 
     #[test]
     fn test_lru_eviction() {
-        let mut cache = LruCache::new(3);
+        let mut cache = LruCache::new(3, None);
         cache.put("a", 1, None);
         cache.put("b", 2, None);
         cache.put("c", 3, None);
@@ -282,7 +304,7 @@ mod tests {
 
     #[test]
     fn test_no_memory_leaks() {
-        let mut cache = LruCache::new(2);
+        let mut cache = LruCache::new(2, None);
         for i in 0..1000 {
             cache.put(i, Box::new([0u8; 1024]), None);
         }

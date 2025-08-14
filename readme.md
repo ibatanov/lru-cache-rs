@@ -39,7 +39,7 @@ cache.put("c", 3, None); // Вытеснит "a", если он использо
 
 ### Основные операции
 
-- `new(capacity: usize) -> Self` - Создание нового кеша указанной ёмкости
+- `new(capacity: usize, cleanble: Option<bool>) -> Self` - опция включения evict_expired при операциях вставки/чтения
 - `put(key: K, value: V, ttl: Option<Duration>)` - Добавление элемента
 - `get(key: &K) -> Option<&V>` - Получение элемента (неизменяемая ссылка)
 - `get_mut(key: &K) -> Option<&mut V>` - Получение элемента (изменяемая ссылка)
@@ -49,6 +49,7 @@ cache.put("c", 3, None); // Вытеснит "a", если он использо
 - `len() -> usize` - Текущее количество элементов
 - `is_empty() -> bool` - Проверка на пустоту
 - `capacity() -> usize` - Максимальная ёмкость кеша
+- `evict_expired` - ручная очитка по ttl
 
 ## Производительность
 
