@@ -44,7 +44,7 @@ impl<K: Eq + Hash + Clone, V> LruCache<K, V> {
         }
         let expires_at = ttl.map(|d| Instant::now() + d);
 
-        if let Some(node_ptr) = self.map.get(&key).cloned() {
+        if let Some(&node_ptr) = self.map.get(&key) {
             unsafe {
                 let node = node_ptr.as_ptr().as_mut().unwrap();
                 node.value = value;
