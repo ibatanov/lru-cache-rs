@@ -38,11 +38,15 @@ cache.put("c", 3, None); // Вытеснит "a", если он использо
 ## Основные методы
 
 ### Основные операции
-
-- `new(capacity: usize, cleanble: Option<bool>) -> Self` - опция включения evict_expired при операциях вставки/чтения
+- `new(capacity: usize, cleanup_mode: CleanupMode) -> Self` - Создание нового кеша указанной ёмкости + опция включения evict_expired при операциях
+вставки/чтения
 - `put(key: K, value: V, ttl: Option<Duration>)` - Добавление элемента
 - `get(key: &K) -> Option<&V>` - Получение элемента (неизменяемая ссылка)
 - `get_mut(key: &K) -> Option<&mut V>` - Получение элемента (изменяемая ссылка)
+
+### Режим работы
+- `CleanupMode::OnAccess` - Автоматическая очистка при каждом доступе
+- `CleanupMode::OnDemand` - Только при ручном вызове `evict_expired()` (ручное управление)
 
 ### Вспомогательные методы
 

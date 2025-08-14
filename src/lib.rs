@@ -11,28 +11,35 @@ struct Node<K, V> {
     prev: Option<NonNull<Node<K, V>>>,
 }
 
+pub enum CleanupMode {
+    /// Автоматическая очистка при каждом доступе
+    OnAccess,
+    /// Только при ручном вызове `evict_expired()`
+    OnDemand,
+}
+
 pub struct LruCache<K, V> {
     map: HashMap<K, NonNull<Node<K, V>>>,
     head: Option<NonNull<Node<K, V>>>,
     tail: Option<NonNull<Node<K, V>>>,
     capacity: usize,
-    cleanble: Option<bool>,
+    cleanup_mode: CleanupMode,
 }
 
 impl<K: Eq + Hash + Clone, V> LruCache<K, V> {
-    pub fn new(capacity: usize, cleanble: Option<bool>) -> Self {
+    pub fn new(capacity: usize, cleanup_mode: CleanupMode) -> Self {
         assert!(capacity > 0);
         LruCache {
             map: HashMap::with_capacity(capacity),
             head: None,
             tail: None,
             capacity,
-            cleanble,
+            cleanup_mode,
         }
     }
 
     pub fn put(&mut self, key: K, value: V, ttl: Option<Duration>) {
-        if self.cleanble.unwrap_or(false) {
+        if matches!(self.cleanup_mode, CleanupMode::OnAccess) {
             self.evict_expired();
         }
         let expires_at = ttl.map(|d| Instant::now() + d);
@@ -73,7 +80,7 @@ impl<K: Eq + Hash + Clone, V> LruCache<K, V> {
     }
 
     pub fn get(&mut self, key: &K) -> Option<&V> {
-        if self.cleanble.unwrap_or(false) {
+        if matches!(self.cleanup_mode, CleanupMode::OnAccess) {
             self.evict_expired();
         }
 
@@ -98,7 +105,7 @@ impl<K: Eq + Hash + Clone, V> LruCache<K, V> {
     }
 
     pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
-        if self.cleanble.unwrap_or(false) {
+        if matches!(self.cleanup_mode, CleanupMode::OnAccess) {
             self.evict_expired();
         }
 
@@ -158,10 +165,10 @@ impl<K: Eq + Hash + Clone, V> LruCache<K, V> {
     fn remove_last(&mut self) {
         if let Some(tail_ptr) = self.tail {
             unsafe {
-                let key = (*tail_ptr.as_ptr()).key.clone();
+                let key = &(*tail_ptr.as_ptr()).key;
                 let prev = (*tail_ptr.as_ptr()).prev;
 
-                self.map.remove(&key);
+                self.map.remove(key);
 
                 match prev {
                     Some(prev) => {
@@ -240,7 +247,7 @@ mod tests {
 
     #[test]
     fn test_basic_operations() {
-        let mut cache = LruCache::new(2, None);
+        let mut cache = LruCache::new(2, CleanupMode::OnAccess);
         cache.put("a", 1, None);
         cache.put("b", 2, None);
 
@@ -256,7 +263,7 @@ mod tests {
 
     #[test]
     fn test_ttl_expiration_auto() {
-        let mut cache = LruCache::new(2, Some(true));
+        let mut cache = LruCache::new(2, CleanupMode::OnDemand);
         cache.put("a", 1, Some(Duration::from_millis(150)));
         cache.put("b", 2, None);
 
@@ -270,8 +277,8 @@ mod tests {
     }
 
     #[test]
-    fn test_ttl_expiration_() {
-        let mut cache = LruCache::new(2, None);
+    fn test_ttl_expiration() {
+        let mut cache = LruCache::new(2, CleanupMode::OnAccess);
         cache.put("a", 1, Some(Duration::from_millis(150)));
         cache.put("b", 2, None);
 
@@ -288,7 +295,7 @@ mod tests {
 
     #[test]
     fn test_lru_eviction() {
-        let mut cache = LruCache::new(3, None);
+        let mut cache = LruCache::new(3, CleanupMode::OnAccess);
         cache.put("a", 1, None);
         cache.put("b", 2, None);
         cache.put("c", 3, None);
@@ -304,7 +311,7 @@ mod tests {
 
     #[test]
     fn test_no_memory_leaks() {
-        let mut cache = LruCache::new(2, None);
+        let mut cache = LruCache::new(2, CleanupMode::OnAccess);
         for i in 0..1000 {
             cache.put(i, Box::new([0u8; 1024]), None);
         }
